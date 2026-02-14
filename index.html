@@ -1,0 +1,256 @@
+<!doctype html>
+<html lang="ja">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>静的QRジェネレーター（外部API使用）</title>
+  <style>
+    :root{
+      --bg:#0f1724; --card:#0b1220; --accent:#38bdf8; --text:#e6eef8;
+    }
+    *{box-sizing:border-box}
+    body{
+      margin:0; font-family:system-ui,-apple-system,Segoe UI,Roboto,"Noto Sans JP", "Hiragino Kaku Gothic ProN", "メイリオ", sans-serif;
+      background:linear-gradient(180deg,#071021 0%, #07182a 100%); color:var(--text);
+      display:flex; align-items:center; justify-content:center; min-height:100vh; padding:24px;
+    }
+    .card{
+      width:100%; max-width:880px; background:linear-gradient(180deg, rgba(255,255,255,0.02), rgba(255,255,255,0.01));
+      border-radius:12px; box-shadow:0 6px 30px rgba(2,6,23,0.6); padding:20px; display:grid; gap:16px;
+      border:1px solid rgba(255,255,255,0.03);
+    }
+    h1{margin:0;font-size:18px}
+    .grid{display:grid; grid-template-columns:1fr 320px; gap:16px}
+    @media (max-width:840px){ .grid{grid-template-columns:1fr} .right{order:2} }
+    label{display:block; font-size:13px; color:#cfefff; margin-bottom:8px}
+    input[type="text"], textarea, select{
+      width:100%; padding:10px 12px; border-radius:8px; border:1px solid rgba(255,255,255,0.06);
+      background:rgba(255,255,255,0.02); color:var(--text); font-size:14px;
+    }
+    textarea{min-height:90px; resize:vertical}
+    .controls{display:flex; gap:8px; align-items:center; flex-wrap:wrap}
+    .btn{
+      background:var(--accent); color:#042433; border:none; padding:10px 12px; border-radius:8px; cursor:pointer;
+      font-weight:600;
+    }
+    .btn:disabled{opacity:0.5; cursor:not-allowed}
+    .preview{
+      background:linear-gradient(180deg, rgba(255,255,255,0.01), rgba(255,255,255,0.005));
+      border-radius:10px; padding:18px; display:flex; align-items:center; justify-content:center;
+      border:1px dashed rgba(255,255,255,0.03); min-height:320px;
+    }
+    .meta{font-size:13px; color:#9ec9da}
+    .small{font-size:13px;color:#9ec9da}
+    .spinner{width:28px;height:28px;border-radius:50%;border:3px solid rgba(255,255,255,0.06);border-top-color:var(--accent); animation:spin 1s linear infinite}
+    @keyframes spin{to{transform:rotate(360deg)}}
+    .actions{display:flex; gap:8px; margin-top:8px; flex-wrap:wrap}
+    .embedBox{background:rgba(255,255,255,0.02); padding:10px;border-radius:8px; font-family:monospace; font-size:12px; color:#dff6ff; overflow:auto}
+    .hint{font-size:12px;color:#9ec9da}
+  </style>
+</head>
+<body>
+  <main class="card" role="main">
+    <header>
+      <h1>静的で動くQRコードジェネレーター</h1>
+      <p class="meta">見た目は静的HTML。実際の画像生成は外部API（api.qrserver.com）を使います。秘密情報は送らないでね。</p>
+    </header>
+
+    <section class="grid" aria-labelledby="form-title">
+      <div>
+        <form id="qrForm" autocomplete="off" novalidate>
+          <label for="text">QRにする文字列 / URL</label>
+          <textarea id="text" placeholder="https://example.com や 任意のテキスト" aria-label="QRにする文字列">https://example.com</textarea>
+
+          <div style="display:grid; grid-template-columns:1fr 1fr; gap:8px; margin-top:10px;">
+            <div>
+              <label for="size">サイズ（px） <span class="small" id="sizeValue">300</span></label>
+              <input id="size" type="range" min="100" max="1000" value="300" />
+            </div>
+            <div>
+              <label for="ecc">誤り訂正レベル</label>
+              <select id="ecc" aria-label="誤り訂正レベル">
+                <option value="L">L（低）</option>
+                <option value="M" selected>M（中）</option>
+                <option value="Q">Q（高）</option>
+                <option value="H">H（最高）</option>
+              </select>
+            </div>
+          </div>
+
+          <div style="display:flex; gap:8px; margin-top:10px; align-items:center;">
+            <div>
+              <label for="color">前景色</label>
+              <input id="color" type="color" value="#000000" aria-label="前景色" />
+            </div>
+            <div>
+              <label for="bgcolor">背景色</label>
+              <input id="bgcolor" type="color" value="#ffffff" aria-label="背景色" />
+            </div>
+          </div>
+
+          <div class="controls" style="margin-top:14px;">
+            <button class="btn" id="generate" type="button">生成</button>
+            <button class="btn" id="download" type="button" disabled>ダウンロード PNG</button>
+            <button class="btn" id="copyUrl" type="button" disabled>画像URLをコピー</button>
+            <div style="margin-left:auto" class="small hint">外部API: api.qrserver.com</div>
+          </div>
+        </form>
+
+        <div style="margin-top:12px;">
+          <div class="small">埋め込みタグ（コピーして使える）</div>
+          <div id="embed" class="embedBox" aria-live="polite">&lt;img src="..." alt="QR code"&gt;</div>
+        </div>
+      </div>
+
+      <aside class="right">
+        <div class="preview" id="previewArea" aria-live="polite">
+          <div id="loading" style="display:none" class="spinner" aria-hidden="true"></div>
+          <img id="qrImage" alt="QRコードのプレビュー" style="max-width:100%; height:auto; display:none; border-radius:6px; background:#fff" />
+        </div>
+
+        <div style="margin-top:8px; display:flex; justify-content:space-between; align-items:center;">
+          <div class="small hint">生成ステータス: <span id="status">準備完了</span></div>
+          <div class="small hint">CORS: 画像は外部から取得</div>
+        </div>
+      </aside>
+    </section>
+
+    <footer style="display:flex; justify-content:space-between; gap:12px; align-items:center; margin-top:6px;">
+      <div class="small">公開方法: このファイルを GitHub Pages に置くだけ。</div>
+      <div class="small">注意: 機密データは送らないこと。</div>
+    </footer>
+  </main>
+
+  <script>
+    // 参照
+    const textEl = document.getElementById('text');
+    const sizeEl = document.getElementById('size');
+    const sizeValueEl = document.getElementById('sizeValue');
+    const eccEl = document.getElementById('ecc');
+    const colorEl = document.getElementById('color');
+    const bgcolorEl = document.getElementById('bgcolor');
+    const generateBtn = document.getElementById('generate');
+    const qrImage = document.getElementById('qrImage');
+    const previewArea = document.getElementById('previewArea');
+    const loading = document.getElementById('loading');
+    const statusEl = document.getElementById('status');
+    const downloadBtn = document.getElementById('download');
+    const copyUrlBtn = document.getElementById('copyUrl');
+    const embedBox = document.getElementById('embed');
+
+    // APIのベース（今回は api.qrserver.com を使用）
+    const QR_API_BASE = 'https://api.qrserver.com/v1/create-qr-code/';
+
+    // ヘルパー: カラーから#を除去し小文字化
+    function normalizeColor(hex){
+      return (hex||'').replace('#','').toLowerCase();
+    }
+
+    // QR画像のURLを作る（クエリ文字列）
+    function buildApiUrl({data, size, ecc, color, bgcolor}){
+      const params = new URLSearchParams({
+        data: data,
+        size: `${size}x${size}`,
+        ecc: ecc || 'M',
+        qzone: 1,
+        format: 'png'
+      });
+      if(color) params.set('color', normalizeColor(color));
+      if(bgcolor) params.set('bgcolor', normalizeColor(bgcolor));
+      return QR_API_BASE + '?' + params.toString();
+    }
+
+    // fetchしてBlobを受け取り、プレビュー + ダウンロードリンクをセット
+    let currentBlobUrl = null;
+    async function fetchAndShow(url){
+      // クリーンアップ
+      if(currentBlobUrl){ URL.revokeObjectURL(currentBlobUrl); currentBlobUrl = null; }
+
+      try{
+        statusEl.textContent = '読み込み中…';
+        loading.style.display = '';
+        qrImage.style.display = 'none';
+        downloadBtn.disabled = true;
+        copyUrlBtn.disabled = true;
+
+        const resp = await fetch(url, {mode: 'cors'});
+        if(!resp.ok) throw new Error('API error: ' + resp.status);
+
+        const blob = await resp.blob();
+        currentBlobUrl = URL.createObjectURL(blob);
+        qrImage.src = currentBlobUrl;
+        qrImage.style.display = '';
+        downloadBtn.disabled = false;
+        copyUrlBtn.disabled = false;
+
+        // ダウンロード用にBlob URLを保持（filenameは任意）
+        downloadBtn.onclick = () => {
+          const a = document.createElement('a');
+          a.href = currentBlobUrl;
+          a.download = 'qrcode.png';
+          document.body.appendChild(a);
+          a.click();
+          a.remove();
+        };
+
+        copyUrlBtn.onclick = async () => {
+          try{
+            await navigator.clipboard.writeText(url);
+            statusEl.textContent = '画像URLをクリップボードにコピーしました';
+          }catch(e){
+            statusEl.textContent = 'クリップボードにコピーできませんでした';
+          }
+        };
+
+        // 埋め込みタグを作る
+        embedBox.textContent = `<img src="${url}" alt="QR code" width="${qrImage.naturalWidth}" height="${qrImage.naturalHeight}">`;
+
+        statusEl.textContent = '生成完了';
+      }catch(err){
+        console.error(err);
+        statusEl.textContent = '生成に失敗しました';
+        embedBox.textContent = '生成失敗: ' + (err.message || err);
+      }finally{
+        loading.style.display = 'none';
+      }
+    }
+
+    // 実行（必要な値を収集してURLを作ってfetch）
+    async function generate(){
+      const text = (textEl.value || '').trim();
+      if(!text){
+        statusEl.textContent = 'テキストを入力してください';
+        return;
+      }
+      const size = parseInt(sizeEl.value, 10) || 300;
+      const ecc = eccEl.value || 'M';
+      const color = colorEl.value || '#000000';
+      const bgcolor = bgcolorEl.value || '#ffffff';
+
+      const url = buildApiUrl({data: text, size, ecc, color, bgcolor});
+      await fetchAndShow(url);
+    }
+
+    // デバウンス（入力に対して自動生成したい場合に便利）
+    function debounce(fn, wait=350){
+      let t;
+      return (...args) => { clearTimeout(t); t = setTimeout(()=>fn(...args), wait); };
+    }
+
+    // 初期イベント
+    sizeEl.addEventListener('input', ()=> sizeValueEl.textContent = sizeEl.value );
+    generateBtn.addEventListener('click', generate);
+
+    // リアルタイムで変えたいなら有効化（ここでは入力後デバウンスで自動生成）
+    const autoGenerate = debounce(() => generate(), 450);
+    textEl.addEventListener('input', autoGenerate);
+    sizeEl.addEventListener('change', autoGenerate);
+    eccEl.addEventListener('change', autoGenerate);
+    colorEl.addEventListener('change', autoGenerate);
+    bgcolorEl.addEventListener('change', autoGenerate);
+
+    // ページ読み込み時に一度生成
+    window.addEventListener('load', generate);
+  </script>
+</body>
+</html>
